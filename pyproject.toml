@@ -1,0 +1,32 @@
+[project]
+name = "glassclaude"
+version = "0.1.0"
+description = "Drive running Claude Code sessions from Qwen AI glasses: a Mac bridge syncs sessions to a cloud service, which talks to the glasses over the platform's Agent protocol"
+requires-python = ">=3.12"
+dependencies = [
+    "starlette>=0.40",
+    "uvicorn>=0.30",
+    "websockets>=13",
+]
+
+[project.scripts]
+glassclaude = "glassclaude.cli:main"
+
+[project.optional-dependencies]
+mac = [
+    "rumps>=0.4",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "pytest-timeout>=2", "httpx>=0.27"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["glassclaude"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+timeout = 60

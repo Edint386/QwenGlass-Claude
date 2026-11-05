@@ -1,0 +1,35 @@
+# glassclaude 云端服务的容器。在 deploy/ 里运行 docker compose up -d --build，配置读仓库根目录的 .env。
+# 只监听回环，公网入口是反向代理（site.conf）。服务不存数据，状态都在内存里，重启后 Mac 重连时全量同步。
+name: glassclaude
+
+services:
+  claude:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: glassclaude:local
+    container_name: glassclaude
+    env_file:
+      - ../.env
+    ports:
+      - 127.0.0.1:8790:8790
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    mem_limit: 128m
+    pids_limit: 64
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/app/.venv/bin/python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8790/healthz', timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"

@@ -1,0 +1,11 @@
+{
+  "name": "glassclaude",
+  "owner": { "name": "glassclaude" },
+  "plugins": [
+    {
+      "name": "glassclaude-usage",
+      "source": "./glassclaude-usage",
+      "description": "Writes the context fill and plan limits to a local file for the glasses bridge."
+    }
+  ]
+}

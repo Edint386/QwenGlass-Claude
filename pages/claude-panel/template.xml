@@ -1,0 +1,205 @@
+<view xmlns:a="waft://dsl" width="100%" height="100%" flex-flow="row" flex-cross="start" column-gap="0" bg-color="#000000">
+  <!-- claude-panel：服务端用 SHOW_UI 推数据，字段见 glassclaude/panel.py，时间流的行见 glassclaude/layout.py。
+       两栏通顶。左栏：q 提问，正文，ft fm 底行（fk 是样式，查 F）。右栏：h 会话名，tm 总用时，mo ef 模型和思考强度，n0～n2 d0～d2 任务，三个圆环。
+       rp：右栏在不在，这一轮在跑或者还有任务。收起时回复铺满，W 是这两种情况下提问的宽度、底行的宽度和右边字的位置。
+       m：0 看回复，1 选会话，2 确认草稿，3 两栏（运行中，或回复翻过最后一页）。页面按键时自己写，服务也写，都在主数据里。rb：关掉列表和草稿时回到哪。
+       P：环上六个槽，每项 t 是这一页的字，s 是页码。i：当前显示的槽，翻页只改 i，再上报，服务补上离得远的槽。hi lo：环上最远的有效槽，走到这里不翻。nx pv：环上的下一个、上一个。
+       R：运行中的时间流，七行，每行 y r t c z b 是位置、字、时间、颜色、字号、竖条颜色。翻页走服务。
+       竖条和行一样高（26），你说的话折成几行时竖条连成一根，不会一行一段。
+       L：会话列表，第一行是当前会话。c：光标，打开列表时页面写 0。ln lp：光标的下一个、上一个，首尾相接，d 是竖线滑过来的起点。tt：竖线的 top。C：每行的颜色，下标是 c。
+       dr dt dv df：草稿、发给谁、版本号、提示。单击上报版本号，服务核对用户看到的是不是最新的。
+       数据最多 64 个顶层字段，多的静默丢弃；查表不能嵌套（T[P[i].k] 取不到值），所以每行的样式写在行里。 -->
+  <!-- 第一次双击只显示 confirm-back-text，第二次才触发 on-key-back 并关页面。不能写 forbidden="back"：真机上双击完全没反应 -->
+  <page-meta theme="no-status-bar|disable-chat-bar" screen-awake="keep" confirm-back-text="再双击一次退出" />
+  <prompt-config text="" />
+  <json st='{"slot": {{i}}, "c": {{c}}, "dv": {{dv}}, "m": {{m}}}' />
+  <!-- 查任务结束后收不到语音用：页面可见、焦点、亮灭屏都上报，服务只记日志 -->
+  <lifecycle-event on-show="svc://ui-action?mode=mcp&amp;name=show&amp;params={{json:st}}" on-hide="svc://ui-action?mode=mcp&amp;name=hide&amp;params={{json:st}}" on-focus="svc://ui-action?mode=mcp&amp;name=focus&amp;params={{json:st}}" on-blur="svc://ui-action?mode=mcp&amp;name=blur&amp;params={{json:st}}" on-screen-on="svc://ui-action?mode=mcp&amp;name=screen_on&amp;params={{json:st}}" on-screen-off="svc://ui-action?mode=mcp&amp;name=screen_off&amp;params={{json:st}}" />
+  <!-- an：竖线的动画，from,to,毫秒,次数,缓动。绑定的动画遇到任何数据写入都从头重播，所以滑完要换回不动的这一条。g：第几次滑动，倒数带着它走 -->
+  <data an="0,0,1,1,linear" g="0" />
+
+  <key-event a:if="{{m == 0}}" on-key-enter="emit://event/open?" on-key-next="emit://event/tn?" on-key-prev="emit://event/tp?" />
+  <key-event a:elif="{{m == 1}}" on-key-enter="emit://event/pick?" on-key-next="emit://event/cn?" on-key-prev="emit://event/cp?" />
+  <key-event a:elif="{{m == 3}}" on-key-enter="emit://event/open?" on-key-next="svc://ui-action?mode=mcp&amp;name=newer&amp;params={{json:st}}" on-key-prev="svc://ui-action?mode=mcp&amp;name=older&amp;params={{json:st}}" />
+  <!-- on-key-back 写在最后一支：按键链按键分开算，前面几支没写这个键就落到这里，所以几种状态都能退出 -->
+  <key-event a:else="" on-key-enter="emit://event/send?" on-key-next="emit://event/drop?" on-key-prev="emit://event/drop?" on-key-back="svc://ui-action?mode=mcp&amp;name=exit&amp;params={{json:st}}" />
+
+  <!-- 先改 i 再上报：上报时才取 st 的值。event://t 这个前缀两个方向都接得到，排在具体的事件行后面执行 -->
+  <!-- 回复翻到最后一页再往后滑：页面自己切到两栏（时间流服务已经备好），再告诉服务。写在翻页那行前面，那行改了 i 再判断就错了 -->
+  <event match="event://tn?" a:if="{{i == hi}}" action="dataSource://update?m=3" />
+  <event match="event://tn?" a:if="{{i == hi}}" action="dataSource://update?rp=1" />
+  <event match="event://tn?" a:if="{{i == hi}}" action="svc://ui-action?mode=mcp&amp;name=more&amp;params={{json:st}}" />
+  <event match="event://tn?" a:if="{{i != hi}}" action="dataSource://update?i={{nx[i].n}}" />
+  <event match="event://tp?" a:if="{{i != lo}}" action="dataSource://update?i={{pv[i].n}}" />
+  <event match="event://t" action="svc://ui-action?mode=mcp&amp;name=turn&amp;params={{json:st}}" />
+  <!-- 光标动：竖线的 top 立刻到新行，动画从上一行的位置回到 0。先写光标再查 d，d 是按到达的行排的。走完倒数把动画换掉，倒数不写数据，每步约 12 毫秒，25 步盖过 250 毫秒。
+       连着滑时前一条倒数还在走，它走完会把新动画截断，所以倒数带上 g，只有最新一次滑动的倒数才换掉动画 -->
+  <event match="event://cn?" action="dataSource://update?c={{ln[c].n}}" />
+  <event match="event://cn?" action="data://update?g={{d:g + 1}}" />
+  <event match="event://cn?" action="data://update?an={{ln[c].d}},0,250,1,ease-out" />
+  <event match="event://cn?" action="emit://event/d25?n=25&amp;g={{d:g}}" />
+  <event match="event://cp?" action="dataSource://update?c={{lp[c].n}}" />
+  <event match="event://cp?" action="data://update?g={{d:g + 1}}" />
+  <event match="event://cp?" action="data://update?an={{lp[c].d}},0,250,1,ease-out" />
+  <event match="event://cp?" action="emit://event/d25?n=25&amp;g={{d:g}}" />
+  <event match="event://d1" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d2" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d3" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d4" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d5" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d6" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d7" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d8" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d9" action="emit://event/d{{e:n - 1}}?n={{e:n - 1}}&amp;g={{e:g}}" />
+  <event match="event://d0?" a:if="{{e:g == d:g}}" action="data://update?an=0,0,1,1,linear" />
+  <!-- 换状态再上报，都是先写页面再走服务，按键立刻有反应 -->
+  <!-- 打开列表先把上次的滑动换掉：动画遇到数据写入会重播，上次没走完倒数的话竖线会再滑一遍 -->
+  <event match="event://open?" action="data://update?an=0,0,1,1,linear" />
+  <event match="event://open?" action="dataSource://update?c=0" />
+  <event match="event://open?" action="dataSource://update?m=1" />
+  <event match="event://open?" action="svc://ui-action?mode=mcp&amp;name=list&amp;params={{json:st}}" />
+  <event match="event://pick?" action="dataSource://update?m={{rb}}" />
+  <event match="event://pick?" action="svc://ui-action?mode=mcp&amp;name=pick&amp;params={{json:st}}" />
+  <event match="event://send?" action="dataSource://update?m={{rb}}" />
+  <event match="event://send?" action="svc://ui-action?mode=mcp&amp;name=send&amp;params={{json:st}}" />
+  <event match="event://drop?" action="dataSource://update?m={{rb}}" />
+  <event match="event://drop?" action="svc://ui-action?mode=mcp&amp;name=drop&amp;params={{json:st}}" />
+
+  <view width="640" height="290">
+    <view floating="true" left="16" top="11" width="3" height="24" radius="0" bg-color="#808080" />
+    <label text="{{q}}" floating="true" left="30" top="10" width="{{W[rp].q}}" height="26" font-size="18" color="#A0A0A0" long-mode="dot" />
+
+    <label a:if="{{m == 0}}" text="{{P[i].t}}" floating="true" left="30" top="42" width="606" height="208" font-size="18" color="#FFFFFF" long-mode="clip" />
+    <view a:if="{{m == 3}}" floating="true" left="0" top="0" width="640" height="290">
+      <view floating="true" left="0" top="{{R[0].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[0].b}}" />
+        <label text="{{R[0].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[0].z}}" color="{{R[0].c}}" long-mode="clip" />
+        <label text="{{R[0].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+      <view floating="true" left="0" top="{{R[1].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[1].b}}" />
+        <label text="{{R[1].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[1].z}}" color="{{R[1].c}}" long-mode="clip" />
+        <label text="{{R[1].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+      <view floating="true" left="0" top="{{R[2].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[2].b}}" />
+        <label text="{{R[2].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[2].z}}" color="{{R[2].c}}" long-mode="clip" />
+        <label text="{{R[2].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+      <view floating="true" left="0" top="{{R[3].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[3].b}}" />
+        <label text="{{R[3].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[3].z}}" color="{{R[3].c}}" long-mode="clip" />
+        <label text="{{R[3].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+      <view floating="true" left="0" top="{{R[4].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[4].b}}" />
+        <label text="{{R[4].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[4].z}}" color="{{R[4].c}}" long-mode="clip" />
+        <label text="{{R[4].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+      <view floating="true" left="0" top="{{R[5].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[5].b}}" />
+        <label text="{{R[5].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[5].z}}" color="{{R[5].c}}" long-mode="clip" />
+        <label text="{{R[5].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+      <view floating="true" left="0" top="{{R[6].y}}" width="640" height="28">
+        <view floating="true" left="16" top="0" width="3" height="26" radius="0" bg-color="{{R[6].b}}" />
+        <label text="{{R[6].r}}" floating="true" left="30" top="0" width="398" height="26" font-size="{{R[6].z}}" color="{{R[6].c}}" long-mode="clip" />
+        <label text="{{R[6].t}}" floating="true" left="336" top="0" width="80" height="24" font-size="16" color="#808080" text-align="right" />
+      </view>
+    </view>
+
+    <view floating="true" left="16" top="250" width="{{W[rp].f}}" height="30" radius="6" bg-color="{{F[fk].b}}" />
+    <view floating="true" left="17" top="261" width="8" height="8" radius="4" bg-color="{{F[fk].d}}" />
+    <label text="{{ft}}" floating="true" left="30" top="252" width="264" height="26" font-size="18" color="{{F[fk].c}}" long-mode="dot" />
+    <view floating="true" left="{{W[rp].x}}" top="252" width="120" height="26">
+    <label text="{{P[i].s}}{{fm}}" floating="true" left="0" top="0" width="120" height="26" font-size="18" color="{{F[fk].c}}" text-align="right" />
+    </view>
+
+    <view a:if="{{rp == 1}}" floating="true" left="0" top="0" width="640" height="290">
+      <label text="{{h}}" floating="true" left="436" top="10" width="188" height="22" font-size="16" color="#8A8A8A" long-mode="dot" />
+      <label text="{{tm}}" floating="true" left="436" top="32" width="120" height="44" font-size="36" font-weight="bold" color="#FFFFFF" />
+      <label text="{{mo}}" floating="true" left="524" top="34" width="100" height="22" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{ef}}" floating="true" left="524" top="54" width="100" height="22" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{n0}}" floating="true" left="436" top="78" width="188" height="24" font-size="18" color="#FFFFFF" long-mode="dot" />
+      <label text="{{d0}}" floating="true" left="436" top="100" width="188" height="20" font-size="16" color="#8A8A8A" long-mode="dot" />
+      <label text="{{n1}}" floating="true" left="436" top="124" width="188" height="24" font-size="18" color="#FFFFFF" long-mode="dot" />
+      <label text="{{d1}}" floating="true" left="436" top="146" width="188" height="20" font-size="16" color="#8A8A8A" long-mode="dot" />
+      <label text="{{n2}}" floating="true" left="436" top="170" width="188" height="24" font-size="18" color="#FFFFFF" long-mode="dot" />
+      <label text="{{d2}}" floating="true" left="436" top="192" width="188" height="20" font-size="16" color="#8A8A8A" long-mode="dot" />
+      <view floating="true" left="434" top="222" width="60" height="60">
+        <view floating="true" left="2" top="2" width="56" height="56" radius="28" border-width="5" border-color="#2E2E2E" />
+        <view a:if="{{a1 > 0}}" floating="true" left="30" top="0" width="30" height="60">
+          <view floating="true" left="-30" top="0" width="60" height="60" rotate="{{a1}}deg">
+            <view floating="true" left="0" top="0" width="30" height="60"><view floating="true" left="2" top="2" width="56" height="56" radius="28" border-width="5" border-color="{{u1}}" /></view>
+          </view>
+        </view>
+        <view a:if="{{e1 > 0}}" floating="true" left="0" top="0" width="31" height="60">
+          <view floating="true" left="0" top="0" width="60" height="60" rotate="{{e1}}deg">
+            <view floating="true" left="29" top="0" width="31" height="60"><view floating="true" left="-27" top="2" width="56" height="56" radius="28" border-width="5" border-color="{{u1}}" /></view>
+          </view>
+        </view>
+        <label text="CTX" floating="true" left="0" top="12" width="60" height="18" font-size="14" color="#A0A0A0" text-align="center" />
+        <label text="{{m1}}" floating="true" left="0" top="27" width="60" height="22" font-size="18" font-weight="bold" color="#FFFFFF" text-align="center" />
+      </view>
+      <view floating="true" left="500" top="222" width="60" height="60">
+        <view floating="true" left="2" top="2" width="56" height="56" radius="28" border-width="5" border-color="#2E2E2E" />
+        <view a:if="{{a2 > 0}}" floating="true" left="30" top="0" width="30" height="60">
+          <view floating="true" left="-30" top="0" width="60" height="60" rotate="{{a2}}deg">
+            <view floating="true" left="0" top="0" width="30" height="60"><view floating="true" left="2" top="2" width="56" height="56" radius="28" border-width="5" border-color="{{u2}}" /></view>
+          </view>
+        </view>
+        <view a:if="{{e2 > 0}}" floating="true" left="0" top="0" width="31" height="60">
+          <view floating="true" left="0" top="0" width="60" height="60" rotate="{{e2}}deg">
+            <view floating="true" left="29" top="0" width="31" height="60"><view floating="true" left="-27" top="2" width="56" height="56" radius="28" border-width="5" border-color="{{u2}}" /></view>
+          </view>
+        </view>
+        <label text="5H" floating="true" left="0" top="12" width="60" height="18" font-size="14" color="#A0A0A0" text-align="center" />
+        <label text="{{m2}}" floating="true" left="0" top="27" width="60" height="22" font-size="18" font-weight="bold" color="#FFFFFF" text-align="center" />
+      </view>
+      <view floating="true" left="566" top="222" width="60" height="60">
+        <view floating="true" left="2" top="2" width="56" height="56" radius="28" border-width="5" border-color="#2E2E2E" />
+        <view a:if="{{a3 > 0}}" floating="true" left="30" top="0" width="30" height="60">
+          <view floating="true" left="-30" top="0" width="60" height="60" rotate="{{a3}}deg">
+            <view floating="true" left="0" top="0" width="30" height="60"><view floating="true" left="2" top="2" width="56" height="56" radius="28" border-width="5" border-color="{{u3}}" /></view>
+          </view>
+        </view>
+        <view a:if="{{e3 > 0}}" floating="true" left="0" top="0" width="31" height="60">
+          <view floating="true" left="0" top="0" width="60" height="60" rotate="{{e3}}deg">
+            <view floating="true" left="29" top="0" width="31" height="60"><view floating="true" left="-27" top="2" width="56" height="56" radius="28" border-width="5" border-color="{{u3}}" /></view>
+          </view>
+        </view>
+        <label text="7D" floating="true" left="0" top="12" width="60" height="18" font-size="14" color="#A0A0A0" text-align="center" />
+        <label text="{{m3}}" floating="true" left="0" top="27" width="60" height="22" font-size="18" font-weight="bold" color="#FFFFFF" text-align="center" />
+      </view>
+    </view>
+
+    <view a:if="{{m == 1}}" floating="true" left="0" top="0" width="640" height="290" bg-color="#000000">
+      <label text="选一个会话" floating="true" left="30" top="10" width="440" height="26" font-size="18" color="#A0A0A0" />
+      <!-- 光标：竖线和选中行的暗底一起动，每行的字不用按光标换颜色（省 5 个绑定） -->
+      <view floating="true" left="16" top="{{tt[c].n}}" width="608" height="30" radius="0" animate-translate-y="{{d:an}}">
+        <view floating="true" left="8" top="0" width="600" height="30" radius="4" bg-color="#262626" />
+        <view floating="true" left="0" top="0" width="3" height="30" radius="0" bg-color="#FFFFFF" />
+      </view>
+      <label text="{{L[0].a}}" floating="true" left="30" top="49" width="420" height="30" font-size="20" color="#E0E0E0" long-mode="dot" />
+      <label text="{{L[0].e}}" floating="true" left="464" top="52" width="160" height="24" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{L[1].a}}" floating="true" left="30" top="87" width="420" height="30" font-size="20" color="#E0E0E0" long-mode="dot" />
+      <label text="{{L[1].e}}" floating="true" left="464" top="90" width="160" height="24" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{L[2].a}}" floating="true" left="30" top="125" width="420" height="30" font-size="20" color="#E0E0E0" long-mode="dot" />
+      <label text="{{L[2].e}}" floating="true" left="464" top="128" width="160" height="24" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{L[3].a}}" floating="true" left="30" top="163" width="420" height="30" font-size="20" color="#E0E0E0" long-mode="dot" />
+      <label text="{{L[3].e}}" floating="true" left="464" top="166" width="160" height="24" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{L[4].a}}" floating="true" left="30" top="201" width="420" height="30" font-size="20" color="#E0E0E0" long-mode="dot" />
+      <label text="{{L[4].e}}" floating="true" left="464" top="204" width="160" height="24" font-size="16" color="#A0A0A0" text-align="right" />
+      <label text="{{df}}" floating="true" left="30" top="252" width="380" height="26" font-size="18" color="#A0A0A0" />
+      <label text="滑动移动" floating="true" left="412" top="252" width="212" height="26" font-size="16" color="#A0A0A0" text-align="right" />
+    </view>
+
+    <view a:if="{{m == 2}}" floating="true" left="0" top="0" width="640" height="290" bg-color="#000000">
+      <label text="{{dt}}" floating="true" left="30" top="10" width="594" height="26" font-size="18" color="#A0A0A0" long-mode="dot" />
+      <label text="{{dr}}" floating="true" left="30" top="52" width="606" height="180" font-size="24" color="#FFFFFF" long-mode="clip" />
+      <view floating="true" left="16" top="250" width="608" height="30" radius="6" bg-color="#FFFFFF" />
+      <label text="{{df}}" floating="true" left="30" top="252" width="440" height="26" font-size="18" color="#000000" long-mode="dot" />
+      <label text="滑动取消" floating="true" left="480" top="254" width="132" height="24" font-size="16" color="#000000" text-align="right" />
+    </view>
+  </view>
+</view>

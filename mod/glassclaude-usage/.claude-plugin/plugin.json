@@ -1,0 +1,5 @@
+{
+  "name": "glassclaude-usage",
+  "version": "0.1.0",
+  "description": "Writes the context fill and plan limits to a local file for the glasses bridge."
+}
